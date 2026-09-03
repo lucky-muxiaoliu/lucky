@@ -1,4 +1,5 @@
-// 星辰影院 drpy 爬虫 - 给影视仓 / CatVod 用 (type 3)
+// 星辰影院 drpy 爬虫 - 影视仓 / CatVod 用 (type 3)
+// 站点: https://www.csjiesheng.com (AppleCMS 模板, 列表/选集/封面均为静态HTML, 播放m3u8写在播放页里)
 var rule = {
   host: 'https://www.csjiesheng.com'
 };
@@ -40,65 +41,74 @@ var app = {
     };
   },
 
+  // 从一段 <li>...</li> 块里抽出影片: id / 标题 / 封面
   _parseList: function (html) {
     var list = [];
     var liRe = /<li[^>]*>([\s\S]*?)<\/li>/g;
-    var linkRe = /href="\/xcd\/(\d+)\.html"/;
-    var titleRe = /<h[1-6][^>]*>\s*(?:<a[^>]*>)?\s*([^<]+?)\s*(?:<\/a>)?\s*<\/h[1-6]>/;
-    var picRe = /<img[^>]+(?:data-original|data-src|src)="([^"]+)"/;
-    var remarkRe = /\b(更新?HD|HD|TC|BD|DVD)\b/;
     var m;
     while ((m = liRe.exec(html)) !== null) {
       var block = m[1];
-      var lm = block.match(linkRe);
+      // 影片链接是相对路径 xcd/数字.html (有时带开头 /)
+      var lm = block.match(/href="\/?xcd\/(\d+)\.html"/);
       if (!lm) continue;
       var id = lm[1];
-      var tm = block.match(titleRe);
+      // 标题: 优先 a 标签的 title 属性, 其次 <h4>, 再其次 <a> 文本
+      var tm = block.match(/title="([^"]+)"/) ||
+               block.match(/<h4[^>]*>([^<]+)<\/h4>/) ||
+               block.match(/<a[^>]*>([^<]+)<\/a>/);
       var title = tm ? tm[1].trim().replace(/\s+/g, ' ') : '';
-      var pm = block.match(picRe);
+      // 封面: data-original / data-src / img src
+      var pm = block.match(/data-original="([^"]+)"/) ||
+               block.match(/data-src="([^"]+)"/) ||
+               block.match(/<img[^>]+src="([^"]+)"/);
       var pic = pm ? pm[1] : '';
-      var rm = block.match(remarkRe);
-      var remarks = rm ? rm[1] : '';
       if (id && title) {
-        list.push({
-          vod_id: id,
-          vod_name: title,
-          vod_pic: pic,
-          vod_remarks: remarks
-        });
+        list.push({ vod_id: id, vod_name: title, vod_pic: pic });
       }
     }
     return list;
   },
 
   category: function (tid, pg, filter, extend) {
+    // 分类页: /xct/<tid>.html , 第2页尝试 /xct/<tid>-2.html
     var url = rule.host + '/xct/' + tid + (pg > 1 ? ('-' + pg) : '') + '.html';
     var html = request(url);
-    return { list: this._parseList(html), page: pg };
+    var list = this._parseList(html);
+    if (pg > 1 && list.length === 0) {
+      // 退回带 ?page= 的形式
+      html = request(rule.host + '/xct/' + tid + '.html?page=' + pg);
+      list = this._parseList(html);
+    }
+    return { list: list, page: pg };
   },
 
   detail: function (id) {
     var url = rule.host + '/xcd/' + id + '.html';
     var html = request(url);
-    var tm = html.match(/<h1[^>]*>([^<]+)<\/h1>/);
+    var tm = html.match(/<h1[^>]*class="title"[^>]*>([^<]+)<\/h1>/) ||
+             html.match(/<h1[^>]*>([^<]+)<\/h1>/);
     var title = tm ? tm[1].trim() : '';
-    var pm = html.match(/<img[^>]+(?:data-original|data-src)="([^"]+)"/);
+    var pm = html.match(/data-original="([^"]+)"/);
     var pic = pm ? pm[1] : '';
-    var dm = html.match(/剧情简介[\s\S]*?<p[^>]*>([\s\S]*?)<\/p>/);
+    var dm = html.match(/简介[:：]?\s*<\/span>([\s\S]*?)</) ||
+             html.match(/<p[^>]*class="[^"]*content[^"]*"[^>]*>([\s\S]*?)<\/p>/);
     var desc = dm ? dm[1].replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim() : '';
-    var epRe = /href="\/xcp\/\d+\/(\d+)\/(\d+)\.html"/g;
+    // 选集链接: xcp/<vid>/<from>/<ep>.html (相对路径)
+    var epRe = /href="\/?xcp\/(\d+)\/(\d+)\/(\d+)\.html"/g;
     var fromMap = {};
     var em;
     while ((em = epRe.exec(html)) !== null) {
-      var f = em[1], e = em[2];
+      var vid = em[1], f = em[2], e = em[3];
       if (!fromMap[f]) fromMap[f] = [];
-      fromMap[f].push(e);
+      fromMap[f].push(vid + '/' + f + '/' + e);
     }
-    var playUrls = Object.keys(fromMap).map(function (f) {
-      var eps = fromMap[f].slice().sort(function (a, b) { return parseInt(a) - parseInt(b); });
-      var urls = eps.map(function (e) { return id + '/' + f + '/' + e; });
-      return '线路' + f + '$' + urls.join('#');
-    });
+    var playUrls = [];
+    for (var f in fromMap) {
+      var eps = fromMap[f].slice().sort(function (a, b) {
+        return parseInt(a.split('/')[2]) - parseInt(b.split('/')[2]);
+      });
+      playUrls.push('线路' + f + '$' + eps.join('#'));
+    }
     return {
       list: [{
         vod_id: id,
@@ -117,17 +127,14 @@ var app = {
   },
 
   play: function (flag, id, flags) {
+    // id 形如 351998/1/1 -> 播放页 /xcp/351998/1/1.html
     var url = rule.host + '/xcp/' + id + '.html';
     var html = request(url);
-    var m3u8 = html.match(/(https?:\/\/[^\s"'<>\\]*\.m3u8[^\s"'<>\\]*)/i);
-    var playUrl = m3u8 ? m3u8[1] : '';
-    if (!playUrl) {
-      var um = html.match(/["'](https?:\/\/[^"']+\.(?:m3u8|mp4)[^"']*)["']/i);
-      if (um) playUrl = um[1];
-    }
-    if (!playUrl) {
-      var im = html.match(/<iframe[^>]+src="([^"]+)"/);
-      if (im) playUrl = im[1];
+    // m3u8 直接写在播放页里, 例如 /202609/02/xxx/video/index.m3u8
+    var m = html.match(/["']([^"']*\.m3u8)["']/);
+    var playUrl = m ? m[1] : '';
+    if (playUrl && playUrl.indexOf('http') !== 0) {
+      if (playUrl.indexOf('/') === 0) playUrl = rule.host + playUrl;
     }
     return {
       parse: 0,
