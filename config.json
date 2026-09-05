@@ -4,7 +4,7 @@
       "key": "csj",
       "name": "星辰影院",
       "type": 3,
-      "api": "https://cdn.jsdelivr.net/gh/lucky-muxiaoliu/lucky@main/csj.js",
+      "api": "https://ghproxy.net/https://raw.githubusercontent.com/lucky-muxiaoliu/lucky/main/csj.js",
       "searchable": 1,
       "filterable": 1,
       "quickSearch": 1
