@@ -3,13 +3,13 @@
     {
       "key": "csj",
       "name": "星辰影院",
-      "type": 3,
-      "api": "https://cdn.jsdelivr.net/gh/lucky-muxiaoliu/lucky@main/csj.js",
+      "type": 0,
+      "api": "https://cold-lab-e16e.muxiaoliu6.workers.dev/",
       "searchable": 1,
-      "filterable": 1,
+      "filterable": 0,
       "quickSearch": 1
     }
   ],
   "parses": [],
-  "flags": ["电影", "连续剧", "综艺", "动漫", "短剧", "解说"]
+  "flags": ["电影", "连续剧", "动漫", "综艺", "短剧"]
 }
